@@ -6,9 +6,12 @@
 #define TIME360 0
 #define LOWSPEED 250
 
+//Motors initialization
+
 //motor nr1
 #define DIRA D4
 #define DIRB D3
+
 // motor nr2
 #define DIRA2 D6
 #define DIRB2 D5
@@ -34,11 +37,14 @@ long distance() {
   return (duration/2) / 29.1;
 }
 
+
+//Only one action is requierd since the robot needs to make (in this stage) only a 360 turn
 void turnLeft() {
   analogWrite(DIRA,LOWSPEED);
   analogWrite(DIRB,LOW);
   analogWrite(DIRA2,LOW);
   analogWrite(DIRB2,LOWSPEED);
+
   Serial.print(distance());
   Serial.println(" cm");
 }
@@ -49,8 +55,10 @@ unsigned long returnTime() {
   while(distance() > 5) {
     turnLeft();
   }
+
   Serial.print(millis());
   Serial.println(" millisec");
+
   analogWrite(DIRA,LOW);
   analogWrite(DIRB,LOW);
   analogWrite(DIRA2,LOW);
@@ -63,23 +71,31 @@ unsigned long returnTime() {
 void setup() {
   unsigned long t360;
   Serial.begin(74880);
+
+  //Motors pins setup
   pinMode(DIRA,OUTPUT);
   pinMode(DIRB,OUTPUT);
   pinMode(DIRA2,OUTPUT);
   pinMode(DIRB2,OUTPUT);
+
+  //SR04 distance sensor pins setup
   pinMode(TRIG_PIN, OUTPUT); // Sets the trigPin as an Output
   pinMode(ECHO_PIN, INPUT); // Sets the echoPin as an Input
+
   delay(100);
+
   EEPROM.begin(512);
-  EEPROM.put(255, returnTime());
+  EEPROM.put(255, returnTime()); //Remember the time of the spin in EEPROM so the value can be used in Rescue_Nemo.ino
   EEPROM.commit();
   EEPROM.end();
+
+  //Check the value (for safety)
   Serial.print("eeprom value: ");
   EEPROM.begin(512);
   EEPROM.get(255, t360);
   EEPROM.end();  
+
   Serial.println(t360);
-  
 }
 
 void loop() {
