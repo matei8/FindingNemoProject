@@ -3,8 +3,8 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 
-#define STASSID "TENDA_5C3400"
-#define STAPSK  "austria1"
+#define STASSID "local_wifi"
+#define STAPSK  "wifi_password"
 
 #include <algorithm> // std::min
 
@@ -45,6 +45,8 @@ extern MDNSResponder MDNS;
 
 #include <EEPROM.h>
 
+// -------------------------Process the sound from the mic (MAX9812L Electret Microphone Amplifier Module) with FFT---------------
+
 #include <arduinoFFT.h>
 
 #define SAMPLES 2048            //SAMPLES-pt FFT. Must be a base 2 number. Max 128 for Arduino Uno.
@@ -68,43 +70,45 @@ SoundInfo getSoundInfo() {
   info.amplitude = 0;
 
     /*Sample SAMPLES times*/
-    for(int i=0; i<SAMPLES; i++) {
+  for(int i=0; i<SAMPLES; i++) {
+  
+      microSeconds = micros();    //Returns the number of microseconds since the board began running the current script. 
     
-        microSeconds = micros();    //Returns the number of microseconds since the board began running the current script. 
-     
-        vReal[i] = analogRead(0); //Reads the value from analog pin 0 (A0), quantize it and save it as a real term.
-        vImag[i] = 0; //Makes imaginary term 0 always
-        info.amplitude = max(info.amplitude, vReal[i]);
-        /*remaining wait time between samples if necessary*/
-        while(micros() < (microSeconds + samplingPeriod)){
-          
-        }
-    }
- 
-    /*Perform FFT on samples*/
-    FFT.Windowing(vReal, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
-    FFT.Compute(vReal, vImag, SAMPLES, FFT_FORWARD);
-    FFT.ComplexToMagnitude(vReal, vImag, SAMPLES);
+      vReal[i] = analogRead(0); //Reads the value from analog pin 0 (A0), quantize it and save it as a real term.
+      vImag[i] = 0; //Makes imaginary term 0 always
+      info.amplitude = max(info.amplitude, vReal[i]);
+      /*remaining wait time between samples if necessary*/
+      while(micros() < (microSeconds + samplingPeriod)){
+        
+      }
+  }
 
-    /*Find peak frequency and print peak*/
-    //info.frequency = FFT.MajorPeak(vReal, SAMPLES, SAMPLING_FREQUENCY);
-    delay(10);
-    double sound[2];
-    FFT.MajorPeak(vReal, SAMPLES, SAMPLING_FREQUENCY, &info.frequency, &info.amplitude);
-    Serial.print("peak ");     //Print out the most dominant frequency.
-    //Serial.print(info.amplitude);
-    //Serial.print(" ");
-    Serial.println(info.frequency);     //Print out the most dominant frequency
+  /*Perform FFT on samples*/
+
+  /* For some reason, the next two lines won't work in VS Code so I comment them out
+  FFT.Windowing(vReal, SAMPLES, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFT.Compute(vReal, vImag, SAMPLES, FFT_FORWARD);
+  */
+
+  FFT.ComplexToMagnitude(vReal, vImag, SAMPLES);
+
+  /*Find peak frequency and print peak*/
+  delay(10);
+  double sound[2];
+  FFT.MajorPeak(vReal, SAMPLES, SAMPLING_FREQUENCY, &info.frequency, &info.amplitude);
+  Serial.print("peak ");     //Print out the most dominant frequency.
+  Serial.println(info.frequency);     //Print out the most dominant frequency
   return info;
 }
-// end FFT
+//--------------------End FFT--------------------
 
 
+//--------------More efficient calculation of the values retrieved from distance sensos SR04----------------
 #define TRIG_PIN D8
 #define ECHO_PIN D10
 
 long distance() {
-   // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
+  // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
   // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(5);
@@ -125,6 +129,7 @@ long distance() {
 double waitForSignal() {
   int notFound = 5;
   SoundInfo sound;
+
   while(notFound) {
     sound = getSoundInfo();
     if(sound.frequency > 3000 && sound.frequency < 3500) {
@@ -135,18 +140,24 @@ double waitForSignal() {
     handleWifi();
     delay(20);
   }
+
   return sound.frequency;
 }
+
+//-----------------Initializing DC Motors---------------
 
 // motor nr1
 #define DIRA D4
 #define DIRB D3
+
 // motor nr2
 #define DIRA2 D6
 #define DIRB2 D5
 
 #define TIME360 0
 #define LOWSPEED 300
+
+//-------------Initializing simple movements of the robots------------
 
 void turnLeft() {
   analogWrite(DIRA,LOWSPEED);
@@ -184,56 +195,72 @@ void stepBack(int speed) {
   analogWrite(DIRB2,LOW);
 }
 
+//---------------------------------------------------
+
 void findDirection() { // finding the direction from where the sound comes from so we can move twards the robot nr2
   
    Serial.println("FINDING THE DIRECTION");
    Serial.println(" ");
+
    unsigned long initialTime;
-   long t360; // the time that robot nr1 needs to make a 360 turn
+   long t360; //The time that robot nr1 needs to make a 360 turn
+
+   //Using EEPROM values to get the rotation time from calibrate360 program
    EEPROM.begin(512);
    EEPROM.get(255, t360);
    EEPROM.end();
+
    t360 = max(t360, 6000l);
    Serial.print("rotation time: ");
    Serial.println(t360);
+
    int maxAmp = 0;
    unsigned long minDistTime;
    SoundInfo sound;
+
    handleWifi();
    turnLeft();
    initialTime = millis();
    long distMin = distance();
+
    do { 
-      //sound = getSoundInfo(); 
-      //int amp = sound.amplitude;
       long crtDist = distance(); 
+
       if(distMin > crtDist) {
         distMin = crtDist;
         minDistTime = millis();
       }
-     handleWifi();
-     Serial.print("distMin: ");
-     Serial.println(distMin);
+
+      handleWifi();
+      Serial.print("distMin: ");
+      Serial.println(distMin);
+
    } while((millis() - initialTime) < t360);
-   stopMotors();
+
+   stopMotors(); //After the first rotation is finnished, the motors are stopped so the next stage can start
    
    Serial.print("min dist time: ");
    Serial.println(minDistTime);
    Serial.print("min dist: ");
    Serial.println(distMin);
+
    handleWifi();
 
-   unsigned long finalRotationTime = initialTime + t360 - minDistTime + 200;
+   unsigned long finalRotationTime = initialTime + t360 - minDistTime + 200; //Set the period the robot has to rotate for
    initialTime = millis();
    turnRight();
+
    do {
       handleWifi();
       delay(1);
    } while((distance() > distMin + 10) || ((millis() - initialTime) <= finalRotationTime));
+
    stopMotors();
    Serial.println(finalRotationTime); 
+
    handleWifi(); 
 }
+
 
 void searchNemo() {
   Serial.println("SEARCHING NEMO");
@@ -241,16 +268,20 @@ void searchNemo() {
   while(distance() > 15) {
     Serial.println(distance());
   }
+
   moveForward(300);
   while(distance() > 4) {
     Serial.println(distance());
   }
+
   stopMotors();
-  delay(3000);
-  stepBack(500);
+  delay(3000); //Wait for the green pallets to get in robot number 2
+  stepBack(500); //Make room for the second robot to move
   delay(2000);
-  stopMotors();
+  stopMotors(); //The process is now finished
 }
+
+
 void WIFI_SETUP() {
   Serial.begin(BAUD_SERIAL);
   Serial.setRxBufferSize(RXBUFFERSIZE);
@@ -263,7 +294,6 @@ void WIFI_SETUP() {
   WiFi.begin(ssid, password);
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
     delay(1000);
-//    ESP.restart();
   }
   
   MDNS.begin("TestHost", WiFi.localIP(), 0);
@@ -274,20 +304,6 @@ void WIFI_SETUP() {
 }
 
 void OTA_SETUP() {
-
-  // Port defaults to 8266
-  // ArduinoOTA.setPort(8266);
-
-  // Hostname defaults to esp8266-[ChipID]
-  // ArduinoOTA.setHostname("myesp8266");
-
-  // No authentication by default
-  // ArduinoOTA.setPassword("admin");
-
-  // Password can be set with it's md5 value as well
-  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
-  // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
-
   ArduinoOTA.onStart([]() {
     String type;
     if (ArduinoOTA.getCommand() == U_FLASH) {
@@ -396,19 +412,23 @@ void handleWifi() {
 }
 
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
+  pinMode(LED_BUILTIN, OUTPUT); // Initialize the LED_BUILTIN pin as an output
   pinMode(TRIG_PIN, OUTPUT); // Sets the trigPin as an Output
   pinMode(ECHO_PIN, INPUT); // Sets the echoPin as an Input
   Serial.begin(74880);
+
   OTA_SETUP();
   WIFI_SETUP();
   handleWifi();
+
   Serial.println("Waiting for signal");
   Serial.println(waitForSignal());
+
+  //After the connection with the computer is established, start the serching process
   findDirection();
   searchNemo();
 }
 
 void loop() {
-  handleWifi();
+  handleWifi(); //Constantly handle the WiFi connection
 }
